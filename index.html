@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="600">
+<meta name="robots" content="noindex,nofollow">
+<title>机票价格监控</title>
+<style>
+  :root {
+    --bg:#f4f6fa; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#e5e7eb;
+    --primary:#2563eb; --good:#16a34a; --good-bg:#dcfce7; --warn:#d97706; --warn-bg:#fef3c7;
+    --bad:#dc2626; --bad-bg:#fee2e2; --chip:#eef2ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:1100px; margin:0 auto; padding:20px 16px 48px; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  h1 { margin:0; font-size:24px; }
+  .sub { color:var(--muted); margin-top:2px; }
+  .refresh { text-align:right; color:var(--muted); font-size:13px; }
+  .refresh b { color:var(--text); }
+  .card { background:var(--card); border-radius:12px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  h2 { margin:0 0 12px; font-size:16px; }
+  h2 small { color:var(--muted); font-weight:400; margin-left:8px; font-size:12px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:16px; }
+  .kpi .label { color:var(--muted); font-size:12px; }
+  .kpi .value { font-size:30px; font-weight:700; margin:2px 0; }
+  .kpi .hint { color:var(--muted); font-size:12px; }
+  .kpi .label small { color:#9ca3af; margin-left:4px; }
+  .al { display:inline-block; padding:0 7px; margin-right:4px; border-radius:4px; font-size:12px; font-weight:600;
+        color:hsl(var(--h),60%,32%); background:hsl(var(--h),70%,92%); border:1px solid hsl(var(--h),55%,80%); }
+  .kpi .leg { margin-top:4px; font-size:12px; color:var(--muted); }
+  .kpi .leg b { color:var(--text); font-weight:600; margin-right:2px; }
+  .kpi.click { cursor:pointer; border:2px solid transparent; }
+  .kpi.click.active { border-color:var(--primary); }
+  .up { color:var(--bad); } .down { color:var(--good); }
+  .filters { display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-bottom:16px; }
+  .filters label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  select { padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+  @media (max-width:820px){ .grid2 { grid-template-columns:1fr; } }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:8px 6px; text-align:center; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  td.rowh { text-align:left; font-weight:600; white-space:nowrap; }
+  .cell { border-radius:8px; padding:8px 4px; cursor:pointer; border:2px solid transparent; }
+  .cell .p { font-size:16px; font-weight:700; }
+  .cell .m { font-size:11px; color:var(--muted); }
+  .cell.alert { border-color:var(--good); }
+  .cell.sel { outline:2px solid var(--primary); }
+  .cell.none { color:#9ca3af; cursor:default; background:#f9fafb; }
+  .tabs { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+  .tab { padding:4px 12px; border-radius:999px; background:var(--chip); cursor:pointer; font-size:13px; }
+  .tab.on { background:var(--primary); color:#fff; }
+  .opt td { text-align:left; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; margin-left:4px; }
+  .t-direct { background:var(--good-bg); color:var(--good); }
+  .t-transfer { background:var(--warn-bg); color:var(--warn); }
+  .t-night { background:var(--bad-bg); color:var(--bad); }
+  .t-next { background:#e0f2fe; color:#0369a1; }
+  .price { font-weight:700; font-size:15px; }
+  a.book { color:var(--primary); text-decoration:none; font-size:12px; border:1px solid var(--primary); padding:1px 8px; border-radius:6px; white-space:nowrap; display:inline-block; }
+  .opt td:last-child { width:64px; text-align:right; }
+  .detail-leg { display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line); align-items:center; flex-wrap:wrap; }
+  .detail-leg:last-child { border:none; }
+  .detail-leg .dir { width:42px; color:var(--muted); }
+  .empty { color:var(--muted); padding:16px; text-align:center; }
+  footer { color:var(--muted); font-size:12px; margin-top:20px; line-height:1.7; }
+  svg text { font:11px sans-serif; fill:#6b7280; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="title">机票价格监控</h1>
+      <div class="sub" id="subtitle"></div>
+    </div>
+    <div class="refresh">
+      最近更新：<b id="updated"></b><br>
+      固定更新时点：<span id="times"></span><br>
+      <span>页面每 10 分钟自动重新载入 · <a href="javascript:location.reload()">立即刷新</a></span>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="card filters">
+    <b>筛选</b>
+    <label><input type="checkbox" id="fDirect" checked> 直飞</label>
+    <label><input type="checkbox" id="fTransfer" checked> 中转</label>
+    <label>中转停留上限
+      <select id="fLayover">
+        <option value="">不限</option>
+        <option value="3">≤ 3 小时</option>
+        <option value="6">≤ 6 小时</option>
+        <option value="12">≤ 12 小时</option>
+      </select>
+    </label>
+    <span class="sub">筛选会同时影响价格矩阵和方案列表</span>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>日期组合总价<small>点击格子查看该组合的航班</small></h2>
+      <div id="matrix"></div>
+    </section>
+    <section class="card">
+      <h2>所选组合详情</h2>
+      <div id="detail"></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="card"><h2 id="outTitle">去程方案</h2><div class="tabs" id="outTabs"></div><div id="outList"></div></section>
+    <section class="card"><h2 id="backTitle">回程方案</h2><div class="tabs" id="backTabs"></div><div id="backList"></div></section>
+  </div>
+
+  <section class="card">
+    <h2>价格走势<small id="trendHint"></small></h2>
+    <div id="trend"></div>
+  </section>
+
+  <footer>
+    · 价格来自飞猪 FlyAI 接口，为公开价，不含优惠券和会员权益；下单前请在飞猪确认最终应付金额。<br>
+    · “两张单程”指去程、回程分开购买，总价为两者相加；往返联程仅在接口有返回时参与比较。<br>
+    · 接口偶尔会漏返回结果，个别日期可能时有时无。
+  </footer>
+</div>
+
+<script>
+const DATA = {"latest": {"query_time": "2026-11-25 14:02:21", "origin": "上海", "destination": "长春", "alert_below": 3500, "outbound": {"2027-02-01": {"direct": [{"flights": "9C8935", "dep": "2027-02-01 16:15", "arr": "2027-02-01 18:50", "type": "直达", "via": "", "layover": "", "price": 1849.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3tYjjO"}, {"flights": "CA8585", "dep": "2027-02-01 07:40", "arr": "2027-02-01 10:20", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2Md7ra"}, {"flights": "CA8575", "dep": "2027-02-01 16:00", "arr": "2027-02-01 19:00", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2XzDSv"}, {"flights": "9C8809", "dep": "2027-02-01 07:05", "arr": "2027-02-01 09:55", "type": "直达", "via": "", "layover": "", "price": 1919.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0bT4mU"}, {"flights": "HO1281", "dep": "2027-02-01 07:10", "arr": "2027-02-01 09:55", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0xoHDC"}], "transfer": [{"flights": "FM9119/CA2921", "dep": "2027-02-01 22:00", "arr": "2027-02-02 10:55", "type": "中转", "via": "天津", "layover": "525", "price": 1240.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0Rf6IN"}, {"flights": "MU2998/MU161", "dep": "2027-02-01 16:55", "arr": "2027-02-01 22:55", "type": "中转", "via": "南京", "layover": "135", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4G96gA"}, {"flights": "MU2998/MU2739", "dep": "2027-02-01 16:55", "arr": "2027-02-02 13:20", "type": "中转", "via": "南京", "layover": "1010", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3KA33y"}, {"flights": "MU5577/MU6607", "dep": "2027-02-01 21:50", "arr": "2027-02-02 09:55", "type": "中转", "via": "济南", "layover": "515", "price": 2100.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2cE1tJ"}, {"flights": "MU3756/MU3678", "dep": "2027-02-01 19:15", "arr": "2027-02-02 11:55", "type": "中转", "via": "青岛", "layover": "790", "price": 2510.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4HDEcD"}]}, "2027-02-02": {"direct": [{"flights": "CA8585", "dep": "2027-02-02 07:40", "arr": "2027-02-02 10:20", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1dedSK"}, {"flights": "CA8575", "dep": "2027-02-02 16:00", "arr": "2027-02-02 19:00", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3NXjaN"}, {"flights": "9C8935", "dep": "2027-02-02 16:10", "arr": "2027-02-02 18:55", "type": "直达", "via": "", "layover": "", "price": 1969.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2lQxWg"}, {"flights": "9C8809", "dep": "2027-02-02 07:05", "arr": "2027-02-02 09:55", "type": "直达", "via": "", "layover": "", "price": 1969.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4an4uH"}, {"flights": "HO1281", "dep": "2027-02-02 07:10", "arr": "2027-02-02 09:55", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3Maigx"}], "transfer": [{"flights": "MU2998/MU161", "dep": "2027-02-02 16:55", "arr": "2027-02-02 22:55", "type": "中转", "via": "南京", "layover": "135", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4L74z0"}, {"flights": "MU2700/MU2739", "dep": "2027-02-02 21:25", "arr": "2027-02-03 13:20", "type": "中转", "via": "南京", "layover": "725", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F36fdVk"}, {"flights": "MU2700/MU3854", "dep": "2027-02-02 21:25", "arr": "2027-02-03 16:15", "type": "中转", "via": "南京", "layover": "900", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0fB97Y"}, {"flights": "MU2998/MU2739", "dep": "2027-02-02 16:55", "arr": "2027-02-03 13:20", "type": "中转", "via": "南京", "layover": "1010", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2NvHKi"}, {"flights": "MU2882/MU2739", "dep": "2027-02-02 22:50", "arr": "2027-02-03 13:20", "type": "中转", "via": "南京", "layover": "650", "price": 1900.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1yfBry"}]}, "2027-02-03": {"direct": [{"flights": "CA8585", "dep": "2027-02-03 07:40", "arr": "2027-02-03 10:20", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1NVc0B"}, {"flights": "CA8575", "dep": "2027-02-03 16:00", "arr": "2027-02-03 19:00", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0MJTyI"}, {"flights": "9C8935", "dep": "2027-02-03 16:15", "arr": "2027-02-03 18:50", "type": "直达", "via": "", "layover": "", "price": 1969.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2BWiTc"}, {"flights": "9C8809", "dep": "2027-02-03 07:05", "arr": "2027-02-03 09:55", "type": "直达", "via": "", "layover": "", "price": 1969.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F07bo6a"}, {"flights": "HO1281", "dep": "2027-02-03 07:10", "arr": "2027-02-03 09:55", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3pqe61"}], "transfer": [{"flights": "MU2998/MU161", "dep": "2027-02-03 16:55", "arr": "2027-02-03 22:55", "type": "中转", "via": "南京", "layover": "135", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3hwdOM"}, {"flights": "MU2998/MU2739", "dep": "2027-02-03 16:55", "arr": "2027-02-04 13:20", "type": "中转", "via": "南京", "layover": "1010", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3rTiq4"}, {"flights": "MU2882/MU2739", "dep": "2027-02-03 22:50", "arr": "2027-02-04 13:20", "type": "中转", "via": "南京", "layover": "650", "price": 2000.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0dtFLX"}, {"flights": "MU5577/MU6607", "dep": "2027-02-03 21:50", "arr": "2027-02-04 09:55", "type": "中转", "via": "济南", "layover": "515", "price": 2100.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1JNjIV"}, {"flights": "MU3756/MU3678", "dep": "2027-02-03 19:15", "arr": "2027-02-04 11:55", "type": "中转", "via": "青岛", "layover": "790", "price": 2510.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0Lziyd"}]}}, "return": {"2027-02-10": {"direct": [], "transfer": []}, "2027-02-11": {"direct": [{"flights": "CA8586", "dep": "2027-02-11 11:30", "arr": "2027-02-11 14:25", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0MFuAx"}, {"flights": "CA8576", "dep": "2027-02-11 19:55", "arr": "2027-02-11 22:55", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2AyeTq"}, {"flights": "HO1282", "dep": "2027-02-11 12:45", "arr": "2027-02-11 15:40", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2Riefu"}, {"flights": "HO2116", "dep": "2027-02-11 20:30", "arr": "2027-02-11 23:30", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F064exu"}, {"flights": "HO1076", "dep": "2027-02-11 10:45", "arr": "2027-02-11 15:25", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1uL6cF"}], "transfer": [{"flights": "ZH8598/MU2997", "dep": "2027-02-11 19:30", "arr": "2027-02-12 15:50", "type": "中转", "via": "南京", "layover": "1010", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2KuKqq"}, {"flights": "MU2740/MU2997", "dep": "2027-02-11 14:20", "arr": "2027-02-12 15:50", "type": "中转", "via": "南京", "layover": "1310", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0fc5O0"}, {"flights": "MU3855/MU2997", "dep": "2027-02-11 14:10", "arr": "2027-02-12 15:50", "type": "中转", "via": "南京", "layover": "1305", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1uSgxx"}, {"flights": "CZ6511/MU2997", "dep": "2027-02-11 12:55", "arr": "2027-02-12 15:50", "type": "中转", "via": "南京", "layover": "1380", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F40pnzq"}, {"flights": "BK2729/CA2833", "dep": "2027-02-11 15:00", "arr": "2027-02-12 10:30", "type": "中转", "via": "天津", "layover": "930", "price": 1947.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3Sf7Ty"}]}, "2027-02-12": {"direct": [{"flights": "CA8586", "dep": "2027-02-12 11:30", "arr": "2027-02-12 14:25", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0E610S"}, {"flights": "CA8576", "dep": "2027-02-12 19:55", "arr": "2027-02-12 22:55", "type": "直达", "via": "", "layover": "", "price": 1850.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F33dmfD"}, {"flights": "HO1282", "dep": "2027-02-12 12:45", "arr": "2027-02-12 15:40", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0WjpP8"}, {"flights": "HO2116", "dep": "2027-02-12 20:30", "arr": "2027-02-12 23:30", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1SDsnN"}, {"flights": "HO1076", "dep": "2027-02-12 10:45", "arr": "2027-02-12 15:25", "type": "直达", "via": "", "layover": "", "price": 2030.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1t2d23"}], "transfer": [{"flights": "FM9431/MU2997", "dep": "2027-02-12 09:40", "arr": "2027-02-12 15:50", "type": "中转", "via": "南京", "layover": "125", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3goUHG"}, {"flights": "MU160/MU2997", "dep": "2027-02-12 09:40", "arr": "2027-02-12 15:50", "type": "中转", "via": "南京", "layover": "125", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3frHVA"}, {"flights": "MU2740/MU2997", "dep": "2027-02-12 14:20", "arr": "2027-02-14 15:50", "type": "中转", "via": "南京", "layover": "2750", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0Gp2Wp"}, {"flights": "MU3855/MU2997", "dep": "2027-02-12 14:10", "arr": "2027-02-14 15:50", "type": "中转", "via": "南京", "layover": "2745", "price": 1800.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2Lfhq2"}, {"flights": "MU4346/MU2997", "dep": "2027-02-12 11:55", "arr": "2027-02-13 15:50", "type": "中转", "via": "南京", "layover": "1450", "price": 1900.0, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F1oo86t"}]}}, "roundtrip": {"2027-02-01|2027-02-10": [], "2027-02-01|2027-02-11": [{"price": 3699.0, "out": {"flights": "9C8935", "dep": "2027-02-01 16:15", "arr": "2027-02-01 18:50", "type": "直达", "via": "", "layover": ""}, "back": {"flights": "CA8586", "dep": "2027-02-11 11:30", "arr": "2027-02-11 14:25", "type": "直达", "via": "", "layover": ""}, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F05QCEv"}, {"price": 3699.0, "out": {"flights": "9C8935", "dep": "2027-02-01 16:15", "arr": "2027-02-01 18:50", "type": "直达", "via": "", "layover": ""}, "back": {"flights": "HO5756", "dep": "2027-02-11 11:30", "arr": "2027-02-11 14:25", "type": "直达", "via": "", "layover": ""}, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4bqTzH"}, {"price": 3699.0, "out": {"flights": "9C8935", "dep": "2027-02-01 16:15", "arr": "2027-02-01 18:50", "type": "直达", "via": "", "layover": ""}, "back": {"flights": "CA8576", "dep": "2027-02-11 19:55", "arr": "2027-02-11 22:55", "type": "直达", "via": "", "layover": ""}, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4HOxet"}, {"price": 3699.0, "out": {"flights": "9C8935", "dep": "2027-02-01 16:15", "arr": "2027-02-01 18:50", "type": "直达", "via": "", "layover": ""}, "back": {"flights": "SC5442", "dep": "2027-02-11 19:55", "arr": "2027-02-11 22:55", "type": "直达", "via": "", "layover": ""}, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0RE5t0"}, {"price": 3700.0, "out": {"flights": "CA8585", "dep": "2027-02-01 07:40", "arr": "2027-02-01 10:20", "type": "直达", "via": "", "layover": ""}, "back": {"flights": "CA8586", "dep": "2027-02-11 11:30", "arr": "2027-02-11 14:25", "type": "直达", "via": "", "layover": ""}, "url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2TCnjV"}], "2027-02-01|2027-02-12": [], "2027-02-02|2027-02-10": [], "2027-02-02|2027-02-11": [], "2027-02-02|2027-02-12": [], "2027-02-03|2027-02-10": [], "2027-02-03|2027-02-11": [], "2027-02-03|2027-02-12": []}, "best_by_pair": [{"query_time": "2026-11-25 14:02:21", "origin": "上海", "destination": "长春", "dep_date": "2027-02-01", "back_date": "2027-02-11", "price": 3040.0, "mode": "两张单程", "rt_price": 3699.0, "combo_price": 3040.0, "out_flights": "FM9119/CA2921", "out_dep": "2027-02-01 22:00", "out_arr": "2027-02-02 10:55", "out_type": "中转", "out_via": "天津", "out_layover_min": "525", "out_price": 1240.0, "back_flights": "ZH8598/MU2997", "back_dep": "2027-02-11 19:30", "back_arr": "2027-02-12 15:50", "back_type": "中转", "back_via": "南京", "back_layover_min": "1010", "back_price": 1800.0, "out_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0Rf6IN", "back_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2KuKqq"}, {"query_time": "2026-11-25 14:02:21", "origin": "上海", "destination": "长春", "dep_date": "2027-02-01", "back_date": "2027-02-12", "price": 3040.0, "mode": "两张单程", "rt_price": null, "combo_price": 3040.0, "out_flights": "FM9119/CA2921", "out_dep": "2027-02-01 22:00", "out_arr": "2027-02-02 10:55", "out_type": "中转", "out_via": "天津", "out_layover_min": "525", "out_price": 1240.0, "back_flights": "FM9431/MU2997", "back_dep": "2027-02-12 09:40", "back_arr": "2027-02-12 15:50", "back_type": "中转", "back_via": "南京", "back_layover_min": "125", "back_price": 1800.0, "out_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F0Rf6IN", "back_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3goUHG"}, {"query_time": "2026-11-25 14:02:21", "origin": "上海", "destination": "长春", "dep_date": "2027-02-02", "back_date": "2027-02-11", "price": 3600.0, "mode": "两张单程", "rt_price": null, "combo_price": 3600.0, "out_flights": "MU2998/MU161", "out_dep": "2027-02-02 16:55", "out_arr": "2027-02-02 22:55", "out_type": "中转", "out_via": "南京", "out_layover_min": "135", "out_price": 1800.0, "back_flights": "ZH8598/MU2997", "back_dep": "2027-02-11 19:30", "back_arr": "2027-02-12 15:50", "back_type": "中转", "back_via": "南京", "back_layover_min": "1010", "back_price": 1800.0, "out_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4L74z0", "back_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2KuKqq"}, {"query_time": "2026-11-25 14:02:21", "origin": "上海", "destination": "长春", "dep_date": "2027-02-02", "back_date": "2027-02-12", "price": 3600.0, "mode": "两张单程", "rt_price": null, "combo_price": 3600.0, "out_flights": "MU2998/MU161", "out_dep": "2027-02-02 16:55", "out_arr": "2027-02-02 22:55", "out_type": "中转", "out_via": "南京", "out_layover_min": "135", "out_price": 1800.0, "back_flights": "FM9431/MU2997", "back_dep": "2027-02-12 09:40", "back_arr": "2027-02-12 15:50", "back_type": "中转", "back_via": "南京", "back_layover_min": "125", "back_price": 1800.0, "out_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F4L74z0", "back_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3goUHG"}, {"query_time": "2026-11-25 14:02:21", "origin": "上海", "destination": "长春", "dep_date": "2027-02-03", "back_date": "2027-02-11", "price": 3600.0, "mode": "两张单程", "rt_price": null, "combo_price": 3600.0, "out_flights": "MU2998/MU161", "out_dep": "2027-02-03 16:55", "out_arr": "2027-02-03 22:55", "out_type": "中转", "out_via": "南京", "out_layover_min": "135", "out_price": 1800.0, "back_flights": "ZH8598/MU2997", "back_dep": "2027-02-11 19:30", "back_arr": "2027-02-12 15:50", "back_type": "中转", "back_via": "南京", "back_layover_min": "1010", "back_price": 1800.0, "out_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3hwdOM", "back_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F2KuKqq"}, {"query_time": "2026-11-25 14:02:21", "origin": "上海", "destination": "长春", "dep_date": "2027-02-03", "back_date": "2027-02-12", "price": 3600.0, "mode": "两张单程", "rt_price": null, "combo_price": 3600.0, "out_flights": "MU2998/MU161", "out_dep": "2027-02-03 16:55", "out_arr": "2027-02-03 22:55", "out_type": "中转", "out_via": "南京", "out_layover_min": "135", "out_price": 1800.0, "back_flights": "FM9431/MU2997", "back_dep": "2027-02-12 09:40", "back_arr": "2027-02-12 15:50", "back_type": "中转", "back_via": "南京", "back_layover_min": "125", "back_price": 1800.0, "out_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3hwdOM", "back_url": "https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F3goUHG"}], "errors": 0}, "history": [{"t": "2026-11-25 11:02:59", "dep": "2027-02-01", "back": "2027-02-12", "price": 3040.0, "mode": "两张单程"}, {"t": "2026-11-25 11:02:59", "dep": "2027-02-02", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 11:02:59", "dep": "2027-02-03", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 11:03:24", "dep": "2027-02-01", "back": "2027-02-12", "price": 3040.0, "mode": "两张单程"}, {"t": "2026-11-25 11:03:24", "dep": "2027-02-02", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 11:03:24", "dep": "2027-02-03", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 11:18:56", "dep": "2027-02-01", "back": "2027-02-11", "price": 3040.0, "mode": "两张单程"}, {"t": "2026-11-25 11:18:56", "dep": "2027-02-01", "back": "2027-02-12", "price": 3040.0, "mode": "两张单程"}, {"t": "2026-11-25 11:18:56", "dep": "2027-02-02", "back": "2027-02-11", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 11:18:56", "dep": "2027-02-02", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 11:18:56", "dep": "2027-02-03", "back": "2027-02-11", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 11:18:56", "dep": "2027-02-03", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 14:02:21", "dep": "2027-02-01", "back": "2027-02-11", "price": 3040.0, "mode": "两张单程"}, {"t": "2026-11-25 14:02:21", "dep": "2027-02-01", "back": "2027-02-12", "price": 3040.0, "mode": "两张单程"}, {"t": "2026-11-25 14:02:21", "dep": "2027-02-02", "back": "2027-02-11", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 14:02:21", "dep": "2027-02-02", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 14:02:21", "dep": "2027-02-03", "back": "2027-02-11", "price": 3600.0, "mode": "两张单程"}, {"t": "2026-11-25 14:02:21", "dep": "2027-02-03", "back": "2027-02-12", "price": 3600.0, "mode": "两张单程"}], "refresh_times": ["10:00", "16:00", "22:00", "04:00"]};
+const L = DATA.latest, H = DATA.history || [];
+const S = { direct:true, transfer:true, maxLayover:null, outDay:null, backDay:null, sel:null };
+const WD = ["日","一","二","三","四","五","六"];
+const $ = id => document.getElementById(id);
+
+// 航司：按航班号前两位（IATA 代码）换算。没有收录的代码直接显示代码。
+const AIRLINES = {
+  MU:["东航",210],CA:["国航",0],CZ:["南航",205],HU:["海航",350],HO:["吉祥",5],"9C":["春秋",125],
+  FM:["上航",330],ZH:["深航",15],SC:["山航",8],KN:["联航",215],BK:["奥凯",180],"3U":["川航",155],
+  GS:["天津航",195],"8L":["祥鹏",40],JD:["首都航",20],TV:["西藏航",190],PN:["西部航",35],
+  QW:["青岛航",200],MF:["厦航",220],G5:["华夏",340],EU:["成都航",25],GJ:["长龙",160],
+  NS:["河北航",230],GX:["北部湾",170],Y8:["金鹏",280],DR:["瑞丽",300],A6:["红土",10],
+  DZ:["东海航",45],RY:["江西航",150],OQ:["重庆航",185],LT:["龙江航",320],JR:["幸福航",240],
+  "9H":["长安航",260],UQ:["乌鲁木齐航",270],HX:["香港航",12]
+};
+function airlineChips(flights){
+  const seen = [];
+  String(flights).split("/").forEach(f=>{ const c=f.slice(0,2); if(!seen.includes(c)) seen.push(c); });
+  return seen.map(c=>{
+    const a = AIRLINES[c]; const hue = a ? a[1] : 220;
+    return `<span class="al" style="--h:${hue}">${a?a[0]:c}</span>`;
+  }).join("");
+}
+
+function dlabel(d){ const x = new Date(d+"T00:00:00"); return (x.getMonth()+1)+"/"+x.getDate()+" 周"+WD[x.getDay()]; }
+function hhmm(s){ return s.slice(11,16); }
+function nextDay(o){ return o.arr.slice(0,10) !== o.dep.slice(0,10); }
+function layH(o){ return o.layover ? (+o.layover)/60 : 0; }
+function fmtLay(o){ const m=+o.layover||0; return Math.floor(m/60)+"小时"+(m%60?String(m%60).padStart(2,"0")+"分":""); }
+function passes(o){
+  if(o.via) return S.transfer && (S.maxLayover==null || layH(o) <= S.maxLayover);
+  return S.direct;
+}
+function legs(dir, day){
+  const r = (dir==="out"?L.outbound:L.return)[day] || {direct:[],transfer:[]};
+  return [...r.direct, ...r.transfer].filter(passes).sort((a,b)=>a.price-b.price);
+}
+const outDays = () => Object.keys(L.outbound), backDays = () => Object.keys(L.return);
+
+function pairBest(dep, back){
+  const o = legs("out",dep)[0], b = legs("back",back)[0];
+  const c = [];
+  if(o && b) c.push({price:o.price+b.price, mode:"两张单程", o, b, dep, back});
+  const rt = (L.roundtrip[dep+"|"+back]||[])[0];
+  if(rt && S.direct) c.push({price:rt.price, mode:"往返联程", rt, dep, back});
+  return c.length ? c.sort((a,b)=>a.price-b.price)[0] : null;
+}
+function modeText(p){
+  if(p.mode==="往返联程") return "往返联程·直飞";
+  const t = (p.o.via?1:0)+(p.b.via?1:0);
+  return t===0 ? "两张单程·均直飞" : t===2 ? "两张单程·均中转" : "两张单程·含1段中转";
+}
+
+function legRow(label, o, url){
+  const tags = (o.via ? `<span class="tag t-transfer">经${o.via} 停${fmtLay(o)}</span>` : `<span class="tag t-direct">直飞</span>`)
+    + (o.via && layH(o)>=8 ? `<span class="tag t-night">过夜等待</span>` : "")
+    + (nextDay(o) ? `<span class="tag t-next">次日到</span>` : "");
+  return `<div class="detail-leg"><span class="dir">${label}</span>
+    <span class="price">¥${o.price? o.price.toFixed(0): ""}</span>
+    <span>${airlineChips(o.flights)}${o.flights}</span><span>${o.dep.slice(5,10).replace("-","/")} ${hhmm(o.dep)} → ${hhmm(o.arr)}</span>${tags}
+    ${url||o.url ? `<a class="book" target="_blank" href="${url||o.url}">飞猪</a>` : ""}</div>`;
+}
+
+// 直飞最低：去程、回程都直飞（或往返联程）；中转最低：至少一段是中转
+function bestCombos(){
+  let direct=null, transfer=null;
+  const take = (cur, c) => (!cur || c.price<cur.price) ? c : cur;
+  const pick = (dir,day) => { const l=legs(dir,day); return {D:l.find(o=>!o.via), T:l.find(o=>o.via)}; };
+  outDays().forEach(dep=>backDays().forEach(back=>{
+    const o=pick("out",dep), k=pick("back",back);
+    const two = (a,c)=>({price:a.price+c.price, mode:"两张单程", o:a, b:c, dep, back});
+    if(o.D&&k.D) direct = take(direct, two(o.D,k.D));
+    const rt=(L.roundtrip[dep+"|"+back]||[])[0];
+    if(rt && S.direct) direct = take(direct, {price:rt.price, mode:"往返联程", rt, dep, back});
+    if(o.T&&k.T) transfer = take(transfer, two(o.T,k.T));
+    if(o.T&&k.D) transfer = take(transfer, two(o.T,k.D));
+    if(o.D&&k.T) transfer = take(transfer, two(o.D,k.T));
+  }));
+  const all = (direct && transfer) ? (direct.price<=transfer.price ? direct : transfer) : (direct || transfer);
+  return {all, direct, transfer};
+}
+function getPick(){
+  const k=S.pick; if(!k) return null;
+  return k.kind==="cell" ? pairBest(k.dep,k.back) : bestCombos()[k.kind];
+}
+function legDesc(o){ return o.via ? `经${o.via}停${fmtLay(o)}` : "直飞"; }
+
+function renderKpis(){
+  const bc = bestCombos();
+  const card = (title, sub, key, p) => `
+    <div class="card kpi click ${S.pick&&S.pick.kind===key?"active":""}" data-k="${key}">
+      <div class="label">${title} <small>${sub}</small></div>
+      <div class="value">${p?("¥"+p.price.toFixed(0)):"—"}</div>
+      <div class="hint">${p ? `去 ${dlabel(p.dep)} · 回 ${dlabel(p.back)}（${modeText(p)}）`
+        + (p.mode==="往返联程"
+           ? `<div class="leg"><b>去</b>${airlineChips(p.rt.out.flights)}${p.rt.out.flights}</div>
+              <div class="leg"><b>回</b>${airlineChips(p.rt.back.flights)}${p.rt.back.flights}</div>`
+           : `<div class="leg"><b>去</b>${airlineChips(p.o.flights)}${p.o.flights}（${legDesc(p.o)}）</div>
+              <div class="leg"><b>回</b>${airlineChips(p.b.flights)}${p.b.flights}（${legDesc(p.b)}）</div>`)
+        : "当前筛选下没有可用组合"}</div></div>`;
+  $("kpis").innerHTML = card("全部方案最低往返总价","直飞、中转一起比较","all",bc.all)
+                      + card("直飞最低往返总价","去程回程均直飞","direct",bc.direct);
+  document.querySelectorAll(".kpi[data-k]").forEach(el=>el.onclick=()=>{ S.pick={kind:el.dataset.k}; renderAll(); });
+}
+
+function renderMatrix(){
+  const deps = outDays(), backs = backDays();
+  const ps = []; deps.forEach(d=>backs.forEach(b=>{ const p=pairBest(d,b); if(p) ps.push(p.price); }));
+  const lo = Math.min(...ps), hi = Math.max(...ps);
+  let h = `<table><tr><th>去程＼回程</th>${backs.map(b=>`<th>${dlabel(b)}</th>`).join("")}</tr>`;
+  deps.forEach(d=>{
+    h += `<tr><td class="rowh">${dlabel(d)}</td>`;
+    backs.forEach(b=>{
+      const p = pairBest(d,b);
+      if(!p){ h += `<td><div class="cell none">无</div></td>`; return; }
+      const t = hi===lo ? 0 : (p.price-lo)/(hi-lo);
+      const bg = `hsl(${140-110*t},70%,${92-4*t}%)`;
+      const pk = getPick(); const sel = pk && pk.dep===d && pk.back===b;
+      h += `<td><div class="cell ${p.price<L.alert_below?"alert":""} ${sel?"sel":""}" style="background:${bg}" data-d="${d}" data-b="${b}">
+        <div class="p">¥${p.price.toFixed(0)}</div><div class="m">${modeText(p)}</div></div></td>`;
+    });
+    h += `</tr>`;
+  });
+  $("matrix").innerHTML = h + `</table><div class="sub" style="margin-top:8px">绿色边框 = 低于阈值 ¥${L.alert_below}；底色越绿越便宜</div>`;
+  document.querySelectorAll(".cell[data-d]").forEach(el=>el.onclick=()=>{ S.pick={kind:"cell",dep:el.dataset.d,back:el.dataset.b}; renderAll(); });
+}
+
+function renderDetail(){
+  if(!S.pick){ $("detail").innerHTML = `<div class="empty">点击上方卡片或左侧的日期组合</div>`; return; }
+  const p = getPick();
+  if(!p){ $("detail").innerHTML = `<div class="empty">该组合在当前筛选下没有可用方案</div>`; return; }
+  const d = p.dep, b = p.back;
+  let h = `<div style="margin-bottom:6px"><b>去 ${dlabel(d)} · 回 ${dlabel(b)}</b>　<span class="price">¥${p.price.toFixed(0)}</span> <span class="sub">${modeText(p)}</span></div>`;
+  if(p.mode==="往返联程"){
+    h += legRow("去程", {...p.rt.out, price:null}, p.rt.url) + legRow("回程", {...p.rt.back, price:null}, p.rt.url);
+  } else {
+    h += legRow("去程", p.o) + legRow("回程", p.b);
+  }
+  $("detail").innerHTML = h;
+}
+
+function renderLegList(dir){
+  const days = dir==="out"?outDays():backDays();
+  const key = dir==="out"?"outDay":"backDay";
+  if(!S[key] || !days.includes(S[key])) S[key] = days.find(d=>legs(dir,d).length) || days[0];
+  $(dir+"Tabs").innerHTML = days.map(d=>`<span class="tab ${d===S[key]?"on":""}" data-d="${d}">${dlabel(d)}</span>`).join("");
+  $(dir+"Tabs").querySelectorAll(".tab").forEach(el=>el.onclick=()=>{ S[key]=el.dataset.d; renderLegList(dir); });
+  const list = legs(dir, S[key]);
+  $(dir+"Title").innerHTML = (dir==="out" ? `去程方案 ${L.origin}→${L.destination}` : `回程方案 ${L.destination}→${L.origin}`)
+    + `<small>${list.length} 个方案</small>`;
+  $(dir+"List").innerHTML = list.length ? `<table class="opt"><tr><th style="text-align:left">价格</th><th style="text-align:left">航班 / 时间</th><th></th></tr>`
+    + list.map(o=>`<tr><td><span class="price">¥${o.price.toFixed(0)}</span></td>
+        <td>${airlineChips(o.flights)}${o.flights}　${hhmm(o.dep)} → ${hhmm(o.arr)}
+          ${o.via?`<span class="tag t-transfer">经${o.via} 停${fmtLay(o)}</span>`:`<span class="tag t-direct">直飞</span>`}
+          ${o.via&&layH(o)>=8?`<span class="tag t-night">过夜等待</span>`:""}${nextDay(o)?`<span class="tag t-next">次日到</span>`:""}</td>
+        <td><a class="book" target="_blank" href="${o.url}">飞猪</a></td></tr>`).join("") + `</table>`
+    : `<div class="empty">当天没有符合筛选的方案（接口未返回，或被筛选条件过滤）</div>`;
+}
+
+function renderTrend(){
+  const runs = {}; H.forEach(r=>{ runs[r.t] = Math.min(runs[r.t]??1e9, r.price); });
+  const ts = Object.keys(runs).sort();
+  $("trendHint").textContent = ts.length<4 ? "数据点还少，随着定时刷新会逐渐丰富" : "每个点是一次运行的最低总价";
+  if(!ts.length){ $("trend").innerHTML = `<div class="empty">暂无历史数据</div>`; return; }
+  const W=1000, Ht=240, m={l:56,r:20,t:16,b:40};
+  const vals = ts.map(t=>runs[t]);
+  let lo=Math.min(...vals), hi=Math.max(...vals); if(hi===lo){ lo-=100; hi+=100; }
+  const pad=(hi-lo)*0.2; lo-=pad; hi+=pad;
+  const x = i => m.l + (ts.length===1?(W-m.l-m.r)/2:i*(W-m.l-m.r)/(ts.length-1));
+  const y = v => m.t + (hi-v)/(hi-lo)*(Ht-m.t-m.b);
+  let s = `<svg viewBox="0 0 ${W} ${Ht}" style="width:100%;height:auto">`;
+  for(let k=0;k<=4;k++){ const v=lo+(hi-lo)*k/4, yy=y(v);
+    s += `<line x1="${m.l}" x2="${W-m.r}" y1="${yy}" y2="${yy}" stroke="#eee"/><text x="${m.l-8}" y="${yy+4}" text-anchor="end">¥${v.toFixed(0)}</text>`; }
+  const ty = y(L.alert_below);
+  if(L.alert_below>lo && L.alert_below<hi) s += `<line x1="${m.l}" x2="${W-m.r}" y1="${ty}" y2="${ty}" stroke="#16a34a" stroke-dasharray="5 4"/><text x="${W-m.r}" y="${ty-4}" text-anchor="end" style="fill:#16a34a">提醒线 ¥${L.alert_below}</text>`;
+  s += `<polyline fill="none" stroke="#2563eb" stroke-width="2.5" points="${ts.map((t,i)=>x(i)+","+y(runs[t])).join(" ")}"/>`;
+  ts.forEach((t,i)=>{ s += `<circle cx="${x(i)}" cy="${y(runs[t])}" r="4" fill="#2563eb"/>
+    <text x="${x(i)}" y="${y(runs[t])-9}" text-anchor="middle" style="fill:#1f2937">¥${runs[t].toFixed(0)}</text>
+    <text x="${x(i)}" y="${Ht-14}" text-anchor="${i===0&&ts.length>1?"start":i===ts.length-1&&ts.length>1?"end":"middle"}">${t.slice(5,16)}</text>`; });
+  $("trend").innerHTML = s + `</svg>`;
+}
+
+function renderAll(){ renderKpis(); renderMatrix(); renderDetail(); renderLegList("out"); renderLegList("back"); }
+
+// 初始化
+$("title").textContent = `${L.origin} ⇄ ${L.destination} 机票监控`;
+$("subtitle").textContent = `去程 ${dlabel(outDays()[0])} – ${dlabel(outDays().slice(-1)[0])} · 回程 ${dlabel(backDays()[0])} – ${dlabel(backDays().slice(-1)[0])}`;
+$("updated").textContent = L.query_time;
+$("times").textContent = (DATA.refresh_times||[]).join(" · ") || "未设置";
+$("fDirect").onchange = e=>{ S.direct=e.target.checked; renderAll(); };
+$("fTransfer").onchange = e=>{ S.transfer=e.target.checked; renderAll(); };
+$("fLayover").onchange = e=>{ S.maxLayover = e.target.value===""?null:+e.target.value; renderAll(); };
+(function pickDefault(){
+  let best=null;
+  outDays().forEach(d=>backDays().forEach(b=>{ const p=pairBest(d,b); if(p && (!best||p.price<best.p.price)) best={d,b,p}; }));
+  S.pick = {kind:"all"};   // 默认选中“全部方案最低”
+})();
+renderAll(); renderTrend();
+</script>
+</body>
+</html>
